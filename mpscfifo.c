@@ -74,10 +74,17 @@ Msg_t *rmv(MpscFifo_t *pQ) {
     pQ->pTail = pNext;
     pQ->count -= 1;
     return pTail;
+  } else if (pTail == pQ->pHead) {
+      return NULL;
   } else {
-    if (initial_count != 0) {
-      printf("rmv: BUG pNext == NULL but initial_count=%d\n", initial_count);
+    uint32_t i;
+    for (i = 0; (pNext = pTail->pNext) == NULL; i++) {
+      sched_yield();
     }
-    return NULL;
+    printf("rmv: Bad luck producer was prempted i=%d initial_count=%d\n", i, initial_count);
+    pTail->data = pNext->data;
+    pQ->pTail = pNext;
+    pQ->count -= 1;
+    return pTail;
   }
 }
