@@ -93,7 +93,7 @@ bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
   // Allocate messages
   Msg_t* msgs = malloc(sizeof(Msg_t) * (msg_count + 1));
   if (msgs == NULL) {
-    printf("multi_thread_msg: Unable to allocate messages, aborting\n");
+    printf("multi_thread_msg: ERROR Unable to allocate messages, aborting\n");
     error = true;
     goto done;
   }
@@ -113,7 +113,6 @@ bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
     // Cast away the constantness to initialize
     add(&fifo, &msgs[i]);
   }
-  printf("multi_thread_msg: after creating pool fifo.count=%d\n", fifo.count);
 
   // Create the clients
   for (uint32_t i = 0; i < client_count; i++, clients_created++) {
@@ -146,13 +145,19 @@ bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
       ClientParams* client = &clients[c];
       Msg_t* msg = client->msg;
       if (msg == NULL) {
-        msg = rmv(&fifo);
+        if ((i & 1) == 0) {
+          msg = rmv(&fifo);
+        } else {
+          msg = rmv_non_blocking(&fifo);
+        }
         if (msg != NULL) {
           msgs_count += 1;
           client->msg = msg;
           sem_post(&client->sem_waiting);
         } else {
           no_msgs_count += 1;
+          printf("multi_thread_msg: Whoops msg == NULL c=%d msgs_count=%lu no_msgs_count=%lu\n",
+              c, msgs_count, no_msgs_count);
           sched_yield();
         }
       } else {
@@ -184,36 +189,45 @@ done:
     sem_destroy(&param->sem_ready);
     sem_destroy(&param->sem_waiting);
     if (param->error_count != 0) {
-      printf("multi_thread_msg: clients[%u]=%p error_count=%ld\n",
+      printf("multi_thread_msg: ERROR clients[%u]=%p error_count=%lu\n",
           i, (void*)param, param->error_count);
       error = true;
     }
   }
 
   // Remove all msgs
-  printf("multi_thread_msg: fifo.count=%d\n", fifo.count);
   Msg_t* msg;
   uint32_t rmv_count = 0;
   while ((msg = rmv(&fifo)) != NULL) {
     rmv_count += 1;
     DPF("multi_thread_msg: remove msg=%p\n", msg);
   }
-  printf("multi_thread_msg: fifo had %d msgs expected %d fifo.count=%d\n",
-      rmv_count, msg_count, fifo.count);
-  error |= rmv_count != msg_count;
+  if (rmv_count != msg_count) {
+    printf("multi_thread_msg: ERROR fifo had %d msgs expected %d\n",
+        rmv_count, msg_count);
+    error = true;
+  }
 
-  deinitMpscFifo(&fifo);
+  msg = deinitMpscFifo(&fifo);
+  if (msg == NULL) {
+    printf("multi_thread_msg: ERROR no message returned from deinit\n");
+    error = true;
+  }
+
   if (msgs != NULL) {
     free(msgs);
   }
 
   uint64_t expected_value = loops * clients_created;
   uint64_t sum = msgs_count + no_msgs_count + not_ready_client_count;
-  printf("multi_thread_msg: sum=%ld expected_value=%ld\n", sum, expected_value);
-  printf("multi_thread_msg: msgs_count=%ld no_msgs_count=%ld not_ready_client_count=%ld\n",
+  if (sum != expected_value) {
+    printf("multi_thread_msg: ERROR sum=%lu != expected_value=%lu\n", sum, expected_value);
+    error = true;
+  }
+
+  printf("multi_thread_msg: msgs_count=%lu no_msgs_count=%lu not_ready_client_count=%lu\n",
       msgs_count, no_msgs_count, not_ready_client_count);
 
-  error |= sum != expected_value;
   printf("multi_thread_msg:-error=%d\n\n", error);
 
   return error;

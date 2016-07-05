@@ -33,7 +33,6 @@ typedef struct Msg_t {
 typedef struct MpscFifo_t {
   _Atomic(Msg_t*) pHead; // __attribute__(( aligned (64) ));
   _Atomic(Msg_t*) pTail; // __attribute__(( aligned (64) ));
-  _Atomic(int32_t) count;
 } MpscFifo_t;
 
 
@@ -58,7 +57,16 @@ extern void add(MpscFifo_t *pQ, Msg_t *pMsg);
 
 /**
  * Remove a Msg_t from the Queue. This maybe used only by
- * a single thread and returns nil if non-blocking.
+ * a single thread and returns NULL if empty or would
+ * have blocked.
+ */
+extern Msg_t *rmv_non_blocking(MpscFifo_t *pQ);
+
+/**
+ * Remove a Msg_t from the Queue. This maybe used only by
+ * a single thread and returns NULL if empty. This may
+ * block if a producer call add and was preempted before
+ * finishing.
  */
 extern Msg_t *rmv(MpscFifo_t *pQ);
 
