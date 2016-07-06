@@ -23,9 +23,82 @@
 typedef _Atomic(uint64_t) Counter;
 //static typedef uint64_t Counter;
 
+typedef struct MsgPool_t {
+  Msg_t* msgs;
+  uint32_t msg_count;
+  MpscFifo_t fifo;
+} MsgPool_t;
+
+bool MsgPool_init(MsgPool_t* pool, uint32_t msg_count) {
+  bool error;
+  Msg_t* msgs;
+
+  // Allocate messages
+  msgs = malloc(sizeof(Msg_t) * (msg_count + 1));
+  if (msgs == NULL) {
+    printf("MsgPool_init: pool=%p ERROR unable to allocate messages, aborting msg_count=%u\n",
+        pool, msg_count);
+    error = true;
+    goto done;
+  }
+
+  // Output info on the pool and messages
+  DPF("MsgPool_init: pool=%p &msgs[0]=%p &msgs[1]=%p sizeof(Msg_t)=%lu(0x%lx)\n",
+      pool, &msgs[0], &msgs[1], sizeof(Msg_t), sizeof(Msg_t));
+  DPF("MsgPool_init: pool=%p, pHead=%p, pTail=%p sizeof(*pool)=%lu(0x%lx)\n",
+      pool, pool->fifo.pHead, pool->fifo.pTail, sizeof(*pool), sizeof(*pool));
+
+  // Init the pool with the first msg as the stub
+  msgs[0].pPool = &pool->fifo;
+  initMpscFifo(&pool->fifo, &msgs[0]);
+
+  // Add the remaining messages
+  for (uint32_t i = 1; i <= msg_count; i++) {
+    DPF("MsgPool_init: add %u msg=%p\n", i, &msgs[i]);
+    msgs[i].pPool = &pool->fifo;
+    add(&pool->fifo, &msgs[i]);
+  }
+
+  error = false;
+done:
+  if (error) {
+    free(msgs);
+    pool->msgs = NULL;
+    pool->msg_count = 0;
+  } else {
+    pool->msgs = msgs;
+    pool->msg_count = msg_count;
+  }
+
+  return error;
+}
+
+void MsgPool_deinit(MsgPool_t* pool) {
+  DPF("MsgPool_deinit:+pool=%p msgs=%p\n", pool, pool->msgs);
+  if (pool->msgs != NULL) {
+    // Empty the pool
+    for (uint32_t i = 0; i <= pool->msg_count; i++) {
+      Msg_t *msg = rmv(&pool->fifo);
+      (void)(msg); // unused if NDEBUG is defined
+      DPF("MsgPool_deinit: removed %u msg=%p\n", i, msg);
+    }
+
+    DPF("MsgPool_deinit: pool=%p deinitMpscFifo fifo=%p\n", pool, &pool->fifo);
+    deinitMpscFifo(&pool->fifo);
+
+    DPF("MsgPool_deinit: pool=%p free msgs=%p\n", pool, pool->msgs);
+    free(pool->msgs);
+    pool->msgs = NULL;
+    pool->msg_count = 0;
+  }
+  DPF("MsgPool_deinit:-pool=%p\n", pool);
+}
+
 typedef struct ClientParams {
-  pthread_t thread;
   MpscFifo_t cmdFifo;
+
+  pthread_t thread;
+  uint32_t msg_count;
 
   _Atomic(bool) done;
   uint64_t error_count;
@@ -39,11 +112,23 @@ static void* client(void* p) {
   DPF("client:+param=%p\n", p);
   Msg_t stub;
   Msg_t* msg;
+  MsgPool_t pool;
+
   ClientParams* cp = (ClientParams*)p;
 
+  // Init local msg pool
+  DPF("client: init msg pool=%p\n", &pool);
+  bool error = MsgPool_init(&pool, cp->msg_count);
+  if (error) {
+    printf("client: param=%p ERROR unable to create msgs for pool\n", p);
+    cp->error_count += 1;
+  }
+
+  // Init cmdFifo
   stub.pPool = NULL;
   initMpscFifo(&cp->cmdFifo, &stub);
   DPF("client: param=%p cp->cmdFifo=%p\n", p, &cp->cmdFifo);
+
 
   // Signal we're ready
   sem_post(&cp->sem_ready);
@@ -80,8 +165,13 @@ static void* client(void* p) {
     ret(msg);
   }
 
-  // Now deinit the pool
+  // deinit cmd fifo
+  DPF("client: deinit cmdFifo=%p\n", &cp->cmdFifo);
   deinitMpscFifo(&cp->cmdFifo);
+
+  // deinit msg pool
+  DPF("client: deinit msg pool=%p\n", &pool);
+  MsgPool_deinit(&pool);
 
   DPF("client:-param=%p error_count=%lu returned unprocessed=%u\n",
       p, cp->error_count, unprocessed);
@@ -93,7 +183,7 @@ bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
     const uint32_t msg_count) {
   bool error;
   ClientParams* clients;
-  MpscFifo_t pool;
+  MsgPool_t pool;
   uint32_t clients_created = 0;
   uint64_t msgs_sent = 0;
   uint64_t no_msgs_count = 0;
@@ -109,30 +199,11 @@ bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
     goto done;
   }
 
-  // Allocate messages
-  Msg_t* msgs = malloc(sizeof(Msg_t) * (msg_count + 1));
-  if (msgs == NULL) {
+  DPF("multi_thread_msg: init msg pool=%p\n", &pool);
+  error = MsgPool_init(&pool, msg_count);
+  if (error) {
     printf("multi_thread_msg: ERROR Unable to allocate messages, aborting\n");
-    error = true;
     goto done;
-  }
-
-  // Output info on the pool and messages
-  printf("multi_thread_msg: &msgs[0]=%p &msgs[1]=%p sizeof(Msg_t)=%lu(0x%lx)\n",
-      &msgs[0], &msgs[1], sizeof(Msg_t), sizeof(Msg_t));
-  printf("multi_thread_msg: &pool=%p, &pHead=%p, &pTail=%p sizeof(pool)=%lu(0x%lx)\n",
-      &pool, &pool.pHead, &pool.pTail, sizeof(pool), sizeof(pool));
-
-  // Init the pool with the first msg as the stub
-  msgs[0].pPool = &pool;
-  initMpscFifo(&pool, &msgs[0]);
-
-  // Add the remaining messages
-  for (uint32_t i = 1; i <= msg_count; i++) {
-    DPF("multi_thread_msg: add %u msg=%p\n", i, &msgs[i]);
-    // Cast away the constantness to initialize
-    msgs[i].pPool = &pool;
-    add(&pool, &msgs[i]);
   }
 
   // Create the clients
@@ -141,6 +212,7 @@ bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
     param->done = false;
     param->error_count = 0;
     param->msgs_processed = 0;
+    param->msg_count = msg_count;
 
     sem_init(&param->sem_ready, 0, 0);
     sem_init(&param->sem_waiting, 0, 0);
@@ -164,9 +236,9 @@ bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
       // Test both flavors of rmv
       Msg_t* msg;
       if ((i & 1) == 0) {
-        msg = rmv(&pool);
+        msg = rmv(&pool.fifo);
       } else {
-        msg = rmv_non_stalling(&pool);
+        msg = rmv_non_stalling(&pool.fifo);
       }
 
       if (msg != NULL) {
@@ -219,29 +291,9 @@ done:
     msgs_processed += client->msgs_processed;
   }
 
-  // Remove all msgs from the pool
-  Msg_t* msg;
-  uint32_t rmv_count = 0;
-  while ((msg = rmv(&pool)) != NULL) {
-    rmv_count += 1;
-    DPF("multi_thread_msg: remove msg=%p\n", msg);
-  }
-  if (rmv_count != msg_count) {
-    printf("multi_thread_msg: ERROR pool had %u msgs expected %u\n",
-        rmv_count, msg_count);
-    error = true;
-  }
-
-  // Deinit the pool
-  msg = deinitMpscFifo(&pool);
-  if (msg != NULL) {
-    printf("multi_thread_msg: ERROR all messages should be displosed by deinit\n");
-    error = true;
-  }
-
-  if (msgs != NULL) {
-    free(msgs);
-  }
+  // Deinit the msg pool
+  DPF("multi_thread_msg: deinit msg pool=%p\n", &pool);
+  MsgPool_deinit(&pool);
 
   uint64_t expected_value = loops * clients_created;
   uint64_t sum = msgs_sent + no_msgs_count + not_ready_client_count;
