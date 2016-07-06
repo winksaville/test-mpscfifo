@@ -214,7 +214,7 @@ done:
           i, (void*)client, client->error_count);
       error = true;
     }
-    printf("multi_thread_msg: clients[%u]=%p msg_count=%lu\n",
+    DPF("multi_thread_msg: clients[%u]=%p msg_count=%lu\n",
         i, (void*)client, client->msgs_processed);
     msgs_processed += client->msgs_processed;
   }
