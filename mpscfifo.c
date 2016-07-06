@@ -57,7 +57,7 @@ void add(MpscFifo_t *pQ, Msg_t *pMsg) {
   pMsg->pNext = NULL;
   void** ptr_pHead = (void*)&pQ->pHead;
   Msg_t* pPrev = __atomic_exchange_n(ptr_pHead, pMsg, __ATOMIC_SEQ_CST);
-  // rmv will block if preemted at critical spot
+  // rmv will block if preemted at this critical spot
   pPrev->pNext = pMsg;
 }
 
@@ -68,7 +68,8 @@ Msg_t *rmv_non_blocking(MpscFifo_t *pQ) {
   Msg_t* pTail = pQ->pTail;
   Msg_t* pNext = pTail->pNext;
   if (pNext != NULL) {
-    pTail->data = pNext->data;
+    pTail->arg1 = pNext->arg1;
+    pTail->arg2 = pNext->arg2;
     pQ->pTail = pNext;
     return pTail;
   } else {
@@ -82,22 +83,20 @@ Msg_t *rmv_non_blocking(MpscFifo_t *pQ) {
 Msg_t *rmv(MpscFifo_t *pQ) {
   Msg_t* pTail = pQ->pTail;
   Msg_t* pNext = pTail->pNext;
-  if (pNext != NULL) {
-    // Got one
-    pTail->data = pNext->data;
-    pQ->pTail = pNext;
-    return pTail;
-  } else if (pTail == pQ->pHead) {
+  if ((pNext == NULL) && (pTail == pQ->pHead)) {
     // Q is empty
     return NULL;
   } else {
-    // Q is NOT empty and producer was preempted at critical spot
-    uint32_t i;
-    for (i = 0; (pNext = pTail->pNext) == NULL; i++) {
-      sched_yield();
+    if (pNext == NULL) {
+      // Q is NOT empty but producer was preempted at the critical spot
+      uint32_t i;
+      for (i = 0; (pNext = pTail->pNext) == NULL; i++) {
+        sched_yield();
+      }
+      printf("rmv: Bad luck producer was prempted i=%d\n", i);
     }
-    printf("rmv: Bad luck producer was prempted i=%d\n", i);
-    pTail->data = pNext->data;
+    pTail->arg1 = pNext->arg1;
+    pTail->arg2 = pNext->arg2;
     pQ->pTail = pNext;
     return pTail;
   }

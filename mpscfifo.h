@@ -27,7 +27,8 @@ typedef struct Msg_t Msg_t;
 
 typedef struct Msg_t {
   _Atomic(Msg_t*) pNext; //  __attribute__ (( aligned (64) )); // Next message
-  uint64_t data;
+  uint64_t arg1;
+  uint64_t arg2;
 } Msg_t;
 
 typedef struct MpscFifo_t {
