@@ -7,6 +7,7 @@
 #define _DEFAULT_SOURCE
 
 #include "mpscfifo.h"
+#include "dpf.h"
 
 #include <sys/types.h>
 #include <pthread.h>
@@ -24,25 +25,25 @@ typedef _Atomic(uint64_t) Counter;
 
 typedef struct ClientParams {
   pthread_t thread;
+  MpscFifo_t cmdFifo;
 
   _Atomic(bool) done;
-  _Atomic(Msg_t*) msg;
   uint64_t error_count;
-  uint64_t count;
+  uint64_t msgs_processed;
   sem_t sem_ready;
   sem_t sem_waiting;
 } ClientParams;
 
 
-#ifdef NDEBUG
-#define DPF(format, ...) ((void)(0))
-#else
-#define DPF(format, ...)  printf(format, __VA_ARGS__)
-#endif
-
 static void* client(void* p) {
   DPF("client:+param=%p\n", p);
+  Msg_t stub;
+  Msg_t* msg;
   ClientParams* cp = (ClientParams*)p;
+
+  stub.pPool = NULL;
+  initMpscFifo(&cp->cmdFifo, &stub);
+  DPF("client: param=%p cp->cmdFifo=%p\n", p, &cp->cmdFifo);
 
   // Signal we're ready
   sem_post(&cp->sem_ready);
@@ -50,27 +51,34 @@ static void* client(void* p) {
   // While we're not done wait for a signal to do work
   // do the work and signal work is complete.
   while (!cp->done) {
+    DPF("client: param=%p waiting\n", p);
     sem_wait(&cp->sem_waiting);
 
-    if (!cp->done) {
-      cp->count += 1;
-      Msg_t* msg = cp->msg;
-      if (msg == NULL) {
-        cp->error_count += 1;
-      } else {
-        ret(msg);
-        cp->msg = NULL;
-      }
+    DPF("client: param=%p rmv msg\n", p);
+    msg = rmv(&cp->cmdFifo);
+    DPF("client: param=%p got msg=%p\n", p, msg);
+    if (msg != NULL) {
+      cp->msgs_processed += 1;
+      DPF("client: param=%p ret msg=%p msgs_processed=%lu\n",
+          p, msg, cp->msgs_processed);
+      ret(msg);
     }
   }
 
-  // Get any message waiting ran add it back to its fifo
-  Msg_t* msg = cp->msg;
-  if (msg != NULL) {
+  // Flush any messages in the cmdFifo
+  DPF("client: param=%p done, flushing fifo\n", p);
+  uint32_t unprocessed = 0;
+  while ((msg = rmv(&cp->cmdFifo)) != NULL) {
+    DPF("client: param=%p ret msg=%p\n", p, msg);
+    unprocessed += 1;
     ret(msg);
   }
 
-  DPF("client:-param=%p\n", p);
+  // Now deinit the pool
+  deinitMpscFifo(&cp->cmdFifo);
+
+  DPF("client:-param=%p error_count=%lu returned unprocessed=%u\n",
+      p, cp->error_count, unprocessed);
 
   return NULL;
 }
@@ -79,14 +87,14 @@ bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
     const uint32_t msg_count) {
   bool error;
   ClientParams clients[client_count];
-  MpscFifo_t fifo;
+  MpscFifo_t pool;
   uint32_t clients_created = 0;
-  uint64_t msgs_count = 0;
+  uint64_t msgs_sent = 0;
   uint64_t no_msgs_count = 0;
   uint64_t not_ready_client_count = 0;
 
 
-  printf("multi_thread_msg:+client_count=%d loops=%ld msg_count=%d\n",
+  printf("multi_thread_msg:+client_count=%u loops=%ld msg_count=%u\n",
       client_count, loops, msg_count);
 
   // Allocate messages
@@ -97,31 +105,30 @@ bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
     goto done;
   }
 
-  // Output info on the fifo and messages
+  // Output info on the pool and messages
   printf("multi_thread_msg: &msgs[0]=%p &msgs[1]=%p sizeof(Msg_t)=%ld(0x%lx)\n",
       &msgs[0], &msgs[1], sizeof(Msg_t), sizeof(Msg_t));
-  printf("multi_thread_msg: &fifo=%p, &pHead=%p, &pTail=%p sizeof(fifo)=%ld(0x%lx)\n",
-      &fifo, &fifo.pHead, &fifo.pTail, sizeof(fifo), sizeof(fifo));
+  printf("multi_thread_msg: &pool=%p, &pHead=%p, &pTail=%p sizeof(pool)=%ld(0x%lx)\n",
+      &pool, &pool.pHead, &pool.pTail, sizeof(pool), sizeof(pool));
 
-  // Init the fifo with the first msg as the stub
-  msgs[0].pPool = &fifo;
-  initMpscFifo(&fifo, &msgs[0]);
+  // Init the pool with the first msg as the stub
+  msgs[0].pPool = &pool;
+  initMpscFifo(&pool, &msgs[0]);
 
   // Add the remaining messages
   for (uint32_t i = 1; i <= msg_count; i++) {
-    DPF("multi_thread_msg: add %d msg=%p\n", i, &msgs[i]);
+    DPF("multi_thread_msg: add %u msg=%p\n", i, &msgs[i]);
     // Cast away the constantness to initialize
-    msgs[i].pPool = &fifo;
-    add(&fifo, &msgs[i]);
+    msgs[i].pPool = &pool;
+    add(&pool, &msgs[i]);
   }
 
   // Create the clients
   for (uint32_t i = 0; i < client_count; i++, clients_created++) {
     ClientParams* param = &clients[i];
     param->done = false;
-    param->msg = NULL;
     param->error_count = 0;
-    param->count = 0;
+    param->msgs_processed = 0;
 
     sem_init(&param->sem_ready, 0, 0);
     sem_init(&param->sem_waiting, 0, 0);
@@ -139,30 +146,28 @@ bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
   }
   printf("multi_thread_msg: created %u clients\n", clients_created);
 
-  // Loop though all the clients writing a message to them
+  // Loop though all the clients writing a messages to them
   for (uint32_t i = 0; i < loops; i++) {
     for (uint32_t c = 0; c < clients_created; c++) {
-      ClientParams* client = &clients[c];
-      Msg_t* msg = client->msg;
-      if (msg == NULL) {
-        if ((i & 1) == 0) {
-          msg = rmv(&fifo);
-        } else {
-          msg = rmv_non_blocking(&fifo);
-        }
-        if (msg != NULL) {
-          msgs_count += 1;
-          client->msg = msg;
-          sem_post(&client->sem_waiting);
-        } else {
-          no_msgs_count += 1;
-          printf("multi_thread_msg: Whoops msg == NULL c=%d msgs_count=%lu no_msgs_count=%lu\n",
-              c, msgs_count, no_msgs_count);
-          sched_yield();
-        }
+      // Test both flavors of rmv
+      Msg_t* msg;
+      if ((i & 1) == 0) {
+        msg = rmv(&pool);
       } else {
-        DPF("multi_thread_msg: client=%p msg=%p != NULL\n", client, msg);
-        not_ready_client_count += 1;
+        msg = rmv_non_stalling(&pool);
+      }
+
+      if (msg != NULL) {
+        ClientParams* client = &clients[c];
+
+        msgs_sent += 1;
+        add(&client->cmdFifo, msg);
+        sem_post(&client->sem_waiting);
+        DPF("multi_thread_msg: sent client=%p msg=%p\n", client, msg);
+      } else {
+        no_msgs_count += 1;
+        DPF("multi_thread_msg: Whoops msg == NULL c=%u msgs_sent=%lu no_msgs_count=%lu\n",
+            c, msgs_sent, no_msgs_count);
         sched_yield();
       }
     }
@@ -172,45 +177,53 @@ bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
 
 done:
   printf("multi_thread_msg: done, joining %u clients\n", clients_created);
+  uint64_t msgs_processed = 0;
   for (uint32_t i = 0; i < clients_created; i++) {
-    ClientParams* param = &clients[i];
+    ClientParams* client = &clients[i];
 
     // Signal the client to stop
-    param->done = true;
-    sem_post(&param->sem_waiting);
+    client->done = true;
+    sem_post(&client->sem_waiting);
 
     // Wait until the thread completes
-    int retv = pthread_join(param->thread, NULL);
+    int retv = pthread_join(client->thread, NULL);
     if (retv != 0) {
       printf("multi_thread_msg: joining failed, clients[%u]=%p retv=%d\n",
-          i, (void*)param, retv);
+          i, (void*)client, retv);
     }
 
-    sem_destroy(&param->sem_ready);
-    sem_destroy(&param->sem_waiting);
-    if (param->error_count != 0) {
+    // Cleanup resources
+    sem_destroy(&client->sem_ready);
+    sem_destroy(&client->sem_waiting);
+
+    // Record if clients discovered any errors
+    if (client->error_count != 0) {
       printf("multi_thread_msg: ERROR clients[%u]=%p error_count=%lu\n",
-          i, (void*)param, param->error_count);
+          i, (void*)client, client->error_count);
       error = true;
     }
+    printf("multi_thread_msg: clients[%u]=%p msg_count=%lu\n",
+        i, (void*)client, client->msgs_processed);
+    msgs_processed += client->msgs_processed;
   }
 
-  // Remove all msgs
+  // Remove all msgs from the pool
   Msg_t* msg;
   uint32_t rmv_count = 0;
-  while ((msg = rmv(&fifo)) != NULL) {
+  while ((msg = rmv(&pool)) != NULL) {
     rmv_count += 1;
     DPF("multi_thread_msg: remove msg=%p\n", msg);
   }
   if (rmv_count != msg_count) {
-    printf("multi_thread_msg: ERROR fifo had %d msgs expected %d\n",
+    printf("multi_thread_msg: ERROR pool had %u msgs expected %u\n",
         rmv_count, msg_count);
     error = true;
   }
 
-  msg = deinitMpscFifo(&fifo);
-  if (msg == NULL) {
-    printf("multi_thread_msg: ERROR no message returned from deinit\n");
+  // Deinit the pool
+  msg = deinitMpscFifo(&pool);
+  if (msg != NULL) {
+    printf("multi_thread_msg: ERROR all messages should be displosed by deinit\n");
     error = true;
   }
 
@@ -219,16 +232,17 @@ done:
   }
 
   uint64_t expected_value = loops * clients_created;
-  uint64_t sum = msgs_count + no_msgs_count + not_ready_client_count;
+  uint64_t sum = msgs_sent + no_msgs_count + not_ready_client_count;
   if (sum != expected_value) {
     printf("multi_thread_msg: ERROR sum=%lu != expected_value=%lu\n", sum, expected_value);
     error = true;
   }
 
-  printf("multi_thread_msg: msgs_count=%lu no_msgs_count=%lu not_ready_client_count=%lu\n",
-      msgs_count, no_msgs_count, not_ready_client_count);
+  printf("multi_thread_msg: msgs_processed=%lu msgs_sent=%lu "
+      "no_msgs_count=%lu not_ready_client_count=%lu\n",
+      msgs_processed, msgs_sent, no_msgs_count, not_ready_client_count);
 
-  printf("multi_thread_msg:-error=%d\n\n", error);
+  printf("multi_thread_msg:-error=%u\n\n", error);
 
   return error;
 }

@@ -18,7 +18,13 @@
  * you remove it from the queue. Of course the contents are
  * the same but the returned pointer will be different.
  */
+
+#define NDEBUG
+
+#define _DEFAULT_SOURCE
+
 #include "mpscfifo.h"
+#include "dpf.h"
 
 #include <sys/types.h>
 #include <pthread.h>
@@ -47,7 +53,17 @@ Msg_t *deinitMpscFifo(MpscFifo_t *pQ) {
   Msg_t *pStub = pQ->pHead;
   pQ->pHead = NULL;
   pQ->pTail = NULL;
-  return pStub;
+  if (pStub->pPool == NULL) {
+    // Return stub as its doesn't blelow to a pool
+    return pStub;
+  } else if (pStub->pPool == pQ) {
+    // Can't return the stub to the poll we're deinitializing
+    return NULL;
+  } else {
+    // Return the stub to the pool
+    ret(pStub);
+    return NULL;
+  }
 }
 
 /**
@@ -64,7 +80,7 @@ void add(MpscFifo_t *pQ, Msg_t *pMsg) {
 /**
  * @see mpscifo.h
  */
-Msg_t *rmv_non_blocking(MpscFifo_t *pQ) {
+Msg_t *rmv_non_stalling(MpscFifo_t *pQ) {
   Msg_t* pTail = pQ->pTail;
   Msg_t* pNext = pTail->pNext;
   if (pNext != NULL) {
@@ -93,7 +109,7 @@ Msg_t *rmv(MpscFifo_t *pQ) {
       for (i = 0; (pNext = pTail->pNext) == NULL; i++) {
         sched_yield();
       }
-      printf("rmv: Bad luck producer was prempted i=%d\n", i);
+      DPF("rmv: Bad luck producer was prempted pQ=%p i=%d\n", pQ, i);
     }
     pTail->arg1 = pNext->arg1;
     pTail->arg2 = pNext->arg2;

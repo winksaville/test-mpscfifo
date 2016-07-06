@@ -1,4 +1,6 @@
 /**
+ * This software is released into the public domain.
+ *
  * A MpscFifo is a wait free/thread safe multi-producer
  * single consumer first in first out queue. This algorithm
  * is from Dimitry Vyukov's non intrusive MPSC code here:
@@ -45,8 +47,9 @@ typedef struct MpscFifo_t {
 extern MpscFifo_t *initMpscFifo(MpscFifo_t *pQ, Msg_t *pStub);
 
 /**
- * Deinitialize the MpscFifo_t and return the stub which
- * needs to be disposed of properly. Assumes the fifo is empty.
+ * Deinitialize the MpscFifo_t and return the stub if this routine
+ * can't return it to its pool.  Assumes the fifo is empty and
+ * the only member is the stub.
  */
 extern Msg_t *deinitMpscFifo(MpscFifo_t *pQ);
 
@@ -62,12 +65,12 @@ extern void add(MpscFifo_t *pQ, Msg_t *pMsg);
  * a single thread and returns NULL if empty or would
  * have blocked.
  */
-extern Msg_t *rmv_non_blocking(MpscFifo_t *pQ);
+extern Msg_t *rmv_non_stalling(MpscFifo_t *pQ);
 
 /**
  * Remove a Msg_t from the Queue. This maybe used only by
  * a single thread and returns NULL if empty. This may
- * block if a producer call add and was preempted before
+ * stall if a producer call add and was preempted before
  * finishing.
  */
 extern Msg_t *rmv(MpscFifo_t *pQ);
