@@ -27,6 +27,7 @@ typedef struct Msg_t Msg_t;
 
 typedef struct Msg_t {
   _Atomic(Msg_t*) pNext; //  __attribute__ (( aligned (64) )); // Next message
+  MpscFifo_t* pPool;
   uint64_t arg1;
   uint64_t arg2;
 } Msg_t;
@@ -70,5 +71,10 @@ extern Msg_t *rmv_non_blocking(MpscFifo_t *pQ);
  * finishing.
  */
 extern Msg_t *rmv(MpscFifo_t *pQ);
+
+/**
+ * Return the message to its pool.
+ */
+extern void ret(Msg_t* pMsg);
 
 #endif

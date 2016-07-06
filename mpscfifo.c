@@ -101,3 +101,12 @@ Msg_t *rmv(MpscFifo_t *pQ) {
     return pTail;
   }
 }
+
+/**
+ * @see mpscfifo.h
+ */
+void ret(Msg_t* pMsg) {
+  if ((pMsg != NULL) && (pMsg->pPool != NULL)) {
+    add(pMsg->pPool, pMsg);
+  }
+}

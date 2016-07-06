@@ -24,7 +24,6 @@ typedef _Atomic(uint64_t) Counter;
 
 typedef struct ClientParams {
   pthread_t thread;
-  MpscFifo_t* fifo;
 
   _Atomic(bool) done;
   _Atomic(Msg_t*) msg;
@@ -59,7 +58,7 @@ static void* client(void* p) {
       if (msg == NULL) {
         cp->error_count += 1;
       } else {
-        add(cp->fifo, msg);
+        ret(msg);
         cp->msg = NULL;
       }
     }
@@ -68,7 +67,7 @@ static void* client(void* p) {
   // Get any message waiting ran add it back to its fifo
   Msg_t* msg = cp->msg;
   if (msg != NULL) {
-    add(cp->fifo, msg);
+    ret(msg);
   }
 
   DPF("client:-param=%p\n", p);
@@ -105,12 +104,14 @@ bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
       &fifo, &fifo.pHead, &fifo.pTail, sizeof(fifo), sizeof(fifo));
 
   // Init the fifo with the first msg as the stub
+  msgs[0].pPool = &fifo;
   initMpscFifo(&fifo, &msgs[0]);
 
   // Add the remaining messages
   for (uint32_t i = 1; i <= msg_count; i++) {
     DPF("multi_thread_msg: add %d msg=%p\n", i, &msgs[i]);
     // Cast away the constantness to initialize
+    msgs[i].pPool = &fifo;
     add(&fifo, &msgs[i]);
   }
 
@@ -121,7 +122,6 @@ bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
     param->msg = NULL;
     param->error_count = 0;
     param->count = 0;
-    param->fifo = &fifo;
 
     sem_init(&param->sem_ready, 0, 0);
     sem_init(&param->sem_waiting, 0, 0);
