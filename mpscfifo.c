@@ -73,7 +73,7 @@ void add(MpscFifo_t *pQ, Msg_t *pMsg) {
   pMsg->pNext = NULL;
   void** ptr_pHead = (void*)&pQ->pHead;
   Msg_t* pPrev = __atomic_exchange_n(ptr_pHead, pMsg, __ATOMIC_SEQ_CST);
-  // rmv will block if preemted at this critical spot
+  // rmv will stall spinning if preemted at this critical spot
   pPrev->pNext = pMsg;
 }
 
