@@ -54,14 +54,20 @@ static void* client(void* p) {
     DPF("client: param=%p waiting\n", p);
     sem_wait(&cp->sem_waiting);
 
-    DPF("client: param=%p rmv msg\n", p);
-    msg = rmv(&cp->cmdFifo);
-    DPF("client: param=%p got msg=%p\n", p, msg);
-    if (msg != NULL) {
-      cp->msgs_processed += 1;
-      DPF("client: param=%p ret msg=%p msgs_processed=%lu\n",
-          p, msg, cp->msgs_processed);
-      ret(msg);
+    if (!cp->done) {
+      DPF("client: param=%p rmv msg\n", p);
+      msg = rmv(&cp->cmdFifo);
+      DPF("client: param=%p got msg=%p\n", p, msg);
+      if (msg != NULL) {
+        cp->msgs_processed += 1;
+        DPF("client: param=%p ret msg=%p msgs_processed=%lu\n",
+            p, msg, cp->msgs_processed);
+        ret(msg);
+      } else {
+        cp->error_count += 1;
+        DPF("client: param=%p ERROR msg=NULL msgs_processed=%lu\n",
+            p, cp->msgs_processed);
+      }
     }
   }
 
