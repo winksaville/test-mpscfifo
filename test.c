@@ -92,7 +92,7 @@ static void* client(void* p) {
 bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
     const uint32_t msg_count) {
   bool error;
-  ClientParams clients[client_count];
+  ClientParams* clients;
   MpscFifo_t pool;
   uint32_t clients_created = 0;
   uint64_t msgs_sent = 0;
@@ -100,8 +100,14 @@ bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
   uint64_t not_ready_client_count = 0;
 
 
-  printf("multi_thread_msg:+client_count=%u loops=%ld msg_count=%u\n",
+  printf("multi_thread_msg:+client_count=%u loops=%lu msg_count=%u\n",
       client_count, loops, msg_count);
+  clients = malloc(sizeof(ClientParams) * client_count);
+  if (clients == NULL) {
+    printf("multi_thread_msg: ERROR Unable to allocate clients array, aborting\n");
+    error = true;
+    goto done;
+  }
 
   // Allocate messages
   Msg_t* msgs = malloc(sizeof(Msg_t) * (msg_count + 1));
@@ -112,9 +118,9 @@ bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
   }
 
   // Output info on the pool and messages
-  printf("multi_thread_msg: &msgs[0]=%p &msgs[1]=%p sizeof(Msg_t)=%ld(0x%lx)\n",
+  printf("multi_thread_msg: &msgs[0]=%p &msgs[1]=%p sizeof(Msg_t)=%lu(0x%lx)\n",
       &msgs[0], &msgs[1], sizeof(Msg_t), sizeof(Msg_t));
-  printf("multi_thread_msg: &pool=%p, &pHead=%p, &pTail=%p sizeof(pool)=%ld(0x%lx)\n",
+  printf("multi_thread_msg: &pool=%p, &pHead=%p, &pTail=%p sizeof(pool)=%lu(0x%lx)\n",
       &pool, &pool.pHead, &pool.pTail, sizeof(pool), sizeof(pool));
 
   // Init the pool with the first msg as the stub
@@ -141,7 +147,7 @@ bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
 
     int retv = pthread_create(&param->thread, NULL, client, (void*)&clients[i]);
     if (retv != 0) {
-      printf("multi_thread_msg: error thread creation , clients[%u]=%p retv=%d\n",
+      printf("multi_thread_msg: ERROR thread creation , clients[%u]=%p retv=%d\n",
           i, param, retv);
       error = true;
       goto done;
@@ -266,7 +272,7 @@ int main(int argc, char *argv[]) {
   u_int64_t loops = strtoull(argv[2], NULL, 10);
   u_int32_t msg_count = strtoul(argv[3], NULL, 10);
 
-  printf("test client_count=%d loops=%ld\n", client_count, loops);
+  printf("test client_count=%u loops=%lu msg_count=%u\n", client_count, loops, msg_count);
 
   error |= multi_thread_main(client_count, loops, msg_count);
 
