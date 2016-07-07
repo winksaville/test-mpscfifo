@@ -133,7 +133,6 @@ typedef struct ClientParams {
   uint32_t msg_count;
   uint32_t max_peer_count;
 
-  Msg_t stub;
   MsgPool_t pool;
 
   uint64_t error_count;
@@ -178,16 +177,16 @@ static void* client(void* p) {
 
   // Init local msg pool
   DPF("client: init msg pool=%p\n", &cp->pool);
-  bool error = MsgPool_init(&cp->pool, cp->msg_count);
+  bool error = MsgPool_init(&cp->pool, cp->msg_count + 1); // One more for the cmdFifo
   if (error) {
     printf("client: param=%p ERROR unable to create msgs for pool\n", p);
     cp->error_count += 1;
   }
 
   // Init cmdFifo
-  cp->stub.pPool = NULL;
-  initMpscFifo(&cp->cmdFifo, &cp->stub);
-  DPF("client: param=%p cp->cmdFifo=%p stub=%p\n", p, &cp->cmdFifo, &cp->stub);
+  Msg_t* stub = MsgPool_get_msg(&cp->pool);
+  initMpscFifo(&cp->cmdFifo, stub);
+  DPF("client: param=%p cp->cmdFifo=%p stub=%p\n", p, &cp->cmdFifo, stub);
 
 
   // Signal we're ready
@@ -329,7 +328,6 @@ uint32_t wait_for_rsp(MpscFifo_t* fifo, uint64_t rsp_expected, void* client, uin
 bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
     const uint32_t msg_count) {
   bool error;
-  Msg_t stub;
   MpscFifo_t cmdFifo;
   ClientParams* clients;
   MsgPool_t pool;
@@ -340,10 +338,6 @@ bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
 
   printf("multi_thread_msg:+client_count=%u loops=%lu msg_count=%u\n",
       client_count, loops, msg_count);
-
-  stub.pPool = NULL;
-  initMpscFifo(&cmdFifo, &stub);
-  DPF("multi_thread_msg: cmdFifo=%p stub=%p\n", &cmdFifo, &stub);
 
   if (client_count == 0) {
     printf("multi_thread_msg: ERROR client_count=%d, aborting\n", client_count);
@@ -359,11 +353,16 @@ bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
   }
 
   DPF("multi_thread_msg: init msg pool=%p\n", &pool);
-  error = MsgPool_init(&pool, msg_count);
+  error = MsgPool_init(&pool, msg_count + 1); // + 1 for cmdFifo stub
   if (error) {
     printf("multi_thread_msg: ERROR Unable to allocate messages, aborting\n");
     goto done;
   }
+
+  Msg_t* stub = MsgPool_get_msg(&pool);
+  initMpscFifo(&cmdFifo, stub);
+  DPF("multi_thread_msg: cmdFifo=%p stub=%p\n", &cmdFifo, stub);
+
 
   // Create the clients
   for (uint32_t i = 0; i < client_count; i++, clients_created++) {
