@@ -224,7 +224,8 @@ static void* client(void* p) {
                     p, msg, peer_idx, cp->max_peer_count, peers[peer_idx]);
                 peer_idx += 1;
               } else {
-                printf("client: param=%p ERROR msg->arg2=%lx to many peers peer_idx=%u >= cp->max_peer_count=%u\n",
+                printf("client: param=%p ERROR msg->arg2=%lx to many peers "
+                    "peer_idx=%u >= cp->max_peer_count=%u\n",
                     p, msg->arg2, peer_idx, cp->max_peer_count);
                 cp->error_count += 1;
               }
@@ -235,7 +236,7 @@ static void* client(void* p) {
           case CmdDisconnectAll: {
             if (peers != NULL) {
               peer_idx = 0;
-              DPF("client: param=%p msg=%p CmdDisconnect peer_idx=%u max_peer_count=%u\n",
+              DPF("client: param=%p msg=%p CmdDisconnectAll peer_idx=%u max_peer_count=%u\n",
                   p, msg, peer_idx, cp->max_peer_count);
             }
             send_rsp_or_ret(msg, CmdDisconnected);
@@ -311,14 +312,22 @@ uint32_t wait_for_rsp(MpscFifo_t* fifo, uint64_t rsp_expected, void* client, uin
   Msg_t* msg;
 
   // TODO: Add MpscFifo_t.sem_waiting??
+  bool once = false;
   while ((msg = rmv(fifo)) == NULL) {
+    if (!once) {
+      once = true;
+      DPF("wait_for_rsp: fifo=%p waiting for rsp=%lu client[%u]=%p\n",
+          fifo, rsp_expected, client_idx, client);
+    }
     sched_yield();
   }
   if (msg->arg1 != rsp_expected) {
-    DPF("multi_thread_msg: ERROR unexpected arg1=%lu expected %lu arg2=%lu, client[%u]=%p\n",
-        msg->arg1, rsp_expected, msg->arg2, client_idx, client);
+    DPF("wait_for_rsp: fifo=%p ERROR unexpected arg1=%lu expected %lu arg2=%lu, client[%u]=%p\n",
+        fifo, msg->arg1, rsp_expected, msg->arg2, client_idx, client);
     retv = 1;
   } else {
+    DPF("wait_for_rsp: fifo=%p got rsp=%lu arg2=%lu client[%u]=%p\n",
+        fifo, rsp_expected, msg->arg2, client_idx, client);
     retv = 0;
   }
   ret(msg);
@@ -461,7 +470,7 @@ done:
     }
     msg->pRspQ = &cmdFifo;
     msg->arg1 = CmdDisconnectAll;
-    DPF("multi_thread_msg: send client=%p msg=%p msg->arg1=%lu ddCmdDisconnectAll\n",
+    DPF("multi_thread_msg: send client=%p msg=%p msg->arg1=%lu CmdDisconnectAll\n",
        client, msg, msg->arg1);
     add(&client->cmdFifo, msg);
     sem_post(&client->sem_waiting);
