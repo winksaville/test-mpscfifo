@@ -55,12 +55,15 @@ Msg_t *deinitMpscFifo(MpscFifo_t *pQ) {
   pQ->pTail = NULL;
   if (pStub->pPool == NULL) {
     // Return stub as its doesn't blelow to a pool
+    DPF("deinitMpscFifo: pQ=%p no pool for stub=%p\n", pQ, pStub);
     return pStub;
   } else if (pStub->pPool == pQ) {
     // Can't return the stub to the poll we're deinitializing
+    DPF("deinitMpscFifo: pQ=%p don't ret our own stub=%p\n", pQ, pStub);
     return NULL;
   } else {
     // Return the stub to the pool
+    DPF("deinitMpscFifo: pQ=%p ret stub=%p\n", pQ, pStub);
     ret(pStub);
     return NULL;
   }
@@ -84,6 +87,7 @@ Msg_t *rmv_non_stalling(MpscFifo_t *pQ) {
   Msg_t* pTail = pQ->pTail;
   Msg_t* pNext = pTail->pNext;
   if (pNext != NULL) {
+    pTail->pRspQ = pNext->pRspQ;
     pTail->arg1 = pNext->arg1;
     pTail->arg2 = pNext->arg2;
     pQ->pTail = pNext;
@@ -111,6 +115,7 @@ Msg_t *rmv(MpscFifo_t *pQ) {
       }
       DPF("rmv: Bad luck producer was prempted pQ=%p i=%d\n", pQ, i);
     }
+    pTail->pRspQ = pNext->pRspQ;
     pTail->arg1 = pNext->arg1;
     pTail->arg2 = pNext->arg2;
     pQ->pTail = pNext;
@@ -124,5 +129,19 @@ Msg_t *rmv(MpscFifo_t *pQ) {
 void ret(Msg_t* pMsg) {
   if ((pMsg != NULL) && (pMsg->pPool != NULL)) {
     add(pMsg->pPool, pMsg);
+  }
+}
+
+/**
+ * @see mpscfifo.h
+ */
+void send_rsp_or_ret(Msg_t* msg, uint64_t arg1) {
+  if (msg->pRspQ != NULL) {
+    MpscFifo_t* pRspQ = msg->pRspQ;
+    msg->pRspQ = NULL;
+    msg->arg1 = arg1;
+    add(pRspQ, msg);
+  } else {
+    ret(msg);
   }
 }

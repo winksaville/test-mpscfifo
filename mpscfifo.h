@@ -30,6 +30,7 @@ typedef struct Msg_t Msg_t;
 typedef struct Msg_t {
   _Atomic(Msg_t*) pNext; //  __attribute__ (( aligned (64) )); // Next message
   MpscFifo_t* pPool;
+  MpscFifo_t* pRspQ;
   uint64_t arg1;
   uint64_t arg2;
 } Msg_t;
@@ -79,5 +80,10 @@ extern Msg_t *rmv(MpscFifo_t *pQ);
  * Return the message to its pool.
  */
 extern void ret(Msg_t* pMsg);
+
+/**
+ * Send a response arg1 if the msg->pRspQ != NULL otherwise ret msg
+ */
+extern void send_rsp_or_ret(Msg_t* msg, uint64_t arg1);
 
 #endif
