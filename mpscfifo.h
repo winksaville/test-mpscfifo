@@ -28,7 +28,7 @@ typedef struct MpscFifo_t MpscFifo_t;
 typedef struct Msg_t Msg_t;
 
 typedef struct Msg_t {
-  _Atomic(Msg_t*) pNext; //  __attribute__ (( aligned (64) )); // Next message
+  _Atomic(Msg_t*) pNext __attribute__ (( aligned (64) )); // Next message
   MpscFifo_t* pPool;
   MpscFifo_t* pRspQ;
   uint64_t arg1;
@@ -36,8 +36,8 @@ typedef struct Msg_t {
 } Msg_t;
 
 typedef struct MpscFifo_t {
-  _Atomic(Msg_t*) pHead; // __attribute__(( aligned (64) ));
-  _Atomic(Msg_t*) pTail; // __attribute__(( aligned (64) ));
+  _Atomic(Msg_t*) pHead __attribute__(( aligned (64) ));
+  _Atomic(Msg_t*) pTail __attribute__(( aligned (64) ));
 } MpscFifo_t;
 
 
