@@ -77,6 +77,14 @@ extern Msg_t *rmv_non_stalling(MpscFifo_t *pQ);
 extern Msg_t *rmv(MpscFifo_t *pQ);
 
 /**
+ * Remove a Msg_t from the Queue DO NOT PRINT DBG output if empty.
+ * This maybe used only by a single thread and returns NULL if empty.
+ * This may stall if a producer call add and was preempted before
+ * finishing.
+ */
+extern Msg_t *rmv_no_dbg_on_empty(MpscFifo_t *pQ);
+
+/**
  * Return the message to its pool.
  */
 extern void ret(Msg_t* pMsg);
