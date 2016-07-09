@@ -637,12 +637,11 @@ done:
   DPF("%ld  time_stopped=%lu.%lu\n", tid(), time_stopped.tv_sec, time_stopped.tv_nsec);
   DPF("%ld  time_complete=%lu.%lu\n", tid(), time_complete.tv_sec, time_complete.tv_nsec);
 
-
-  DPF("%ld  startup=%.6f\n", tid(), diff_timespec_ns(&time_looping, &time_start) / ns_flt);
-  DPF("%ld  looping=%.6f\n", tid(), diff_timespec_ns(&time_done, &time_looping) / ns_flt);
-  DPF("%ld  disconneting=%.6f\n", tid(), diff_timespec_ns(&time_disconnected, &time_done) / ns_flt);
-  DPF("%ld  stopping=%.6f\n", tid(), diff_timespec_ns(&time_stopped, &time_disconnected) / ns_flt);
-  DPF("%ld  complete=%.6f\n", tid(), diff_timespec_ns(&time_complete, &time_stopped) / ns_flt);
+  printf("%ld  startup=%.6f\n", tid(), diff_timespec_ns(&time_looping, &time_start) / ns_flt);
+  printf("%ld  looping=%.6f\n", tid(), diff_timespec_ns(&time_done, &time_looping) / ns_flt);
+  printf("%ld  disconneting=%.6f\n", tid(), diff_timespec_ns(&time_disconnected, &time_done) / ns_flt);
+  printf("%ld  stopping=%.6f\n", tid(), diff_timespec_ns(&time_stopped, &time_disconnected) / ns_flt);
+  printf("%ld  complete=%.6f\n", tid(), diff_timespec_ns(&time_complete, &time_stopped) / ns_flt);
 
   uint64_t processing_ns = diff_timespec_ns(&time_complete, &time_looping);
   printf("%ld  processing=%.3fs\n", tid(), processing_ns / ns_flt);

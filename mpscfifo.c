@@ -82,19 +82,31 @@ Msg_t *deinitMpscFifo(MpscFifo_t *pQ) {
 void add(MpscFifo_t *pQ, Msg_t *pMsg) {
   DPF("%ld  add:+pQ=%p msg=%p arg1=%lu arg2=%lu\n",
         pthread_self(), pQ, pMsg, pMsg->arg1, pMsg->arg2);
-  pMsg->pNext = NULL;
+#if USE_ATOMIC_TYPES
+  pMsg->pNext = NULL
   void** ptr_pHead = (void*)&pQ->pHead;
   Msg_t* pPrev = __atomic_exchange_n(ptr_pHead, pMsg, __ATOMIC_SEQ_CST);
   // rmv will stall spinning if preemted at this critical spot
   pPrev->pNext = pMsg;
   DPF("%ld  add:-pQ=%p msg=%p arg1=%lu arg2=%lu\n",
         pthread_self(), pQ, pMsg, pMsg->arg1, pMsg->arg2);
+#else
+  pMsg->pNext = NULL;
+  Msg_t** ptr_pHead = &pQ->pHead;
+  Msg_t* pPrev = __atomic_exchange_n(ptr_pHead, pMsg, __ATOMIC_ACQ_REL); //SEQ_CST);
+  // rmv will stall spinning if preemted at this critical spot
+  Msg_t** ptr_pNext = &pPrev->pNext;
+  __atomic_store_n(ptr_pNext, pMsg, __ATOMIC_RELEASE); //SEQ_CST);
+  DPF("%ld  add:-pQ=%p msg=%p arg1=%lu arg2=%lu\n",
+        pthread_self(), pQ, pMsg, pMsg->arg1, pMsg->arg2);
+#endif
 }
 
 /**
  * @see mpscifo.h
  */
 Msg_t *rmv_non_stalling(MpscFifo_t *pQ) {
+#if USE_ATOMIC_TYPES
   Msg_t* pTail = pQ->pTail;
   Msg_t* pNext = pTail->pNext;
   if (pNext != NULL) {
@@ -109,12 +121,29 @@ Msg_t *rmv_non_stalling(MpscFifo_t *pQ) {
     DPF("%ld  rmv_non_stalling: 'empty' pQ=%p msg=NULL\n", pthread_self(), pQ);
     return NULL;
   }
+#else
+  Msg_t* pTail = pQ->pTail;
+  Msg_t* pNext = __atomic_load_n(&pTail->pNext, __ATOMIC_ACQUIRE); //SEQ_CST);
+  if (pNext != NULL) {
+    pTail->pRspQ = pNext->pRspQ;
+    pTail->arg1 = pNext->arg1;
+    pTail->arg2 = pNext->arg2;
+    pQ->pTail = pNext;
+    DPF("%ld  rmv_non_stailling: got msg pQ=%p msg=%p arg1=%lu arg2=%lu\n",
+        pthread_self(), pQ, pTail, pTail->arg1, pTail->arg2);
+    return pTail;
+  } else {
+    DPF("%ld  rmv_non_stalling: 'empty' pQ=%p msg=NULL\n", pthread_self(), pQ);
+    return NULL;
+  }
+#endif
 }
 
 /**
  * @see mpscifo.h
  */
 Msg_t *rmv(MpscFifo_t *pQ) {
+#if USE_ATOMIC_TYPES
   Msg_t* pTail = pQ->pTail;
   Msg_t* pNext = pTail->pNext;
   if ((pNext == NULL) && (pTail == pQ->pHead)) {
@@ -140,20 +169,58 @@ Msg_t *rmv(MpscFifo_t *pQ) {
         pthread_self(), pQ, pTail, pTail->arg1, pTail->arg2);
     return pTail;
   }
+#else
+  Msg_t* pTail = pQ->pTail;
+  Msg_t* pNext = __atomic_load_n(&pTail->pNext, __ATOMIC_SEQ_CST);
+  if ((pNext == NULL) && (pTail == __atomic_load_n(&pQ->pHead, __ATOMIC_ACQUIRE))) {
+    // Q is empty
+    DPF("%ld  rmv: empty pQ=%p pNext=%p pTail=%p == pHead=%p\n",
+        pthread_self(), pQ, pNext, pTail, pQ->pHead);
+    return NULL;
+  } else {
+    if (pNext == NULL) {
+      // Q is NOT empty but producer was preempted at the critical spot
+      DPF("%ld  rmv: stalling pQ=%p pNext=%p pTail=%p != pHead=%p\n",
+          pthread_self(), pQ, pNext, pTail, pQ->pHead);
+      uint32_t i;
+      for (i = 0; (pNext = __atomic_load_n(&pTail->pNext, __ATOMIC_ACQUIRE)) == NULL; i++) {
+        sched_yield();
+      }
+    }
+    pTail->pRspQ = pNext->pRspQ;
+    pTail->arg1 = pNext->arg1;
+    pTail->arg2 = pNext->arg2;
+    pQ->pTail = pNext;
+    DPF("%ld  rmv: got msg pQ=%p msg=%p arg1=%lu arg2=%lu\n",
+        pthread_self(), pQ, pTail, pTail->arg1, pTail->arg2);
+    return pTail;
+  }
+#endif
 }
 
 /**
  * @see mpscifo.h
  */
 Msg_t *rmv_no_dbg_on_empty(MpscFifo_t *pQ) {
+#if USE_ATOMIC_TYPES
   Msg_t* pTail = pQ->pTail;
   Msg_t* pNext = pTail->pNext;
   if ((pNext == NULL) && (pTail == pQ->pHead)) {
-    // Q is empty
+    // Q is "empty"
     return NULL;
   } else {
     return rmv(pQ);
   }
+#else
+  Msg_t* pTail = pQ->pTail;
+  Msg_t* pNext = __atomic_load_n(&pTail->pNext, __ATOMIC_ACQUIRE);
+  if ((pNext == NULL) && (pTail == __atomic_load_n(&pQ->pHead, __ATOMIC_ACQUIRE))) {
+    // Q is "empty"
+    return NULL;
+  } else {
+    return rmv(pQ);
+  }
+#endif
 }
 
 /**
