@@ -31,6 +31,18 @@
  */
 _Static_assert(sizeof(uint64_t) >= sizeof(void*), "Expect sizeof uint64_t >= sizeof void*");
 
+const uint64_t ns_u64 = 1000000000ll;
+const float ns_flt = 1000000000.0;
+
+/**
+ * Return the difference between to timespec in nano seconds
+ */
+uint64_t diff_timespec_ns(struct timespec* t1, struct timespec* t2) {
+   uint64_t t1_ns = (t1->tv_sec * ns_u64) + t1->tv_nsec;
+   uint64_t t2_ns = (t2->tv_sec * ns_u64) + t2->tv_nsec;
+   return t1_ns - t2_ns;
+}
+
 typedef _Atomic(uint64_t) Counter;
 //static typedef uint64_t Counter;
 
@@ -154,7 +166,6 @@ typedef struct ClientParams {
 
   uint64_t error_count;
   uint64_t msgs_processed;
-  uint64_t msgs_sent;
   sem_t sem_ready;
   sem_t sem_waiting;
 } ClientParams;
@@ -190,7 +201,6 @@ void send_to_peers(ClientParams* cp) {
        tid(), cp, peer, msg, msg->arg1);
     add(&peer->cmdFifo, msg);
     sem_post(&peer->sem_waiting);
-    cp->msgs_sent += 1;
     DPF("%ld  send_to_peers: param=%p SENT to peer=%p msg=%p msg->arg1=%lu CmdDoNothing\n",
        tid(), cp, peer, msg, msg->arg1);
     cp->peer_send_idx += 1;
@@ -206,6 +216,9 @@ static void* client(void* p) {
   Msg_t* msg;
 
   ClientParams* cp = (ClientParams*)p;
+
+  cp->error_count = 0;
+  cp->msgs_processed = 0;
 
   if (cp->max_peer_count > 0) {
     DPF("%ld  client: param=%p allocate peers max_peer_count=%u\n",
@@ -388,9 +401,17 @@ bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
   uint64_t msgs_sent = 0;
   uint64_t no_msgs_count = 0;
 
+  struct timespec time_start;
+  struct timespec time_looping;
+  struct timespec time_done;
+  struct timespec time_disconnected;
+  struct timespec time_stopped;
+  struct timespec time_complete;
 
   printf("%ld  multi_thread_msg:+client_count=%u loops=%lu msg_count=%u\n",
       tid(), client_count, loops, msg_count);
+
+  clock_gettime(CLOCK_REALTIME, &time_start);
 
   if (client_count == 0) {
     printf("%ld  multi_thread_msg: ERROR client_count=%d, aborting\n",
@@ -421,9 +442,6 @@ bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
   // Create the clients
   for (uint32_t i = 0; i < client_count; i++, clients_created++) {
     ClientParams* param = &clients[i];
-    param->error_count = 0;
-    param->msgs_processed = 0;
-    param->msgs_sent = 0;
     param->msg_count = msg_count;
     param->max_peer_count = client_count;
 
@@ -441,7 +459,7 @@ bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
     // Wait until it starts
     sem_wait(&param->sem_ready);
   }
-  printf("%ld  multi_thread_msg: created %u clients\n", tid(), clients_created);
+  DPF("%ld  multi_thread_msg: created %u clients\n", tid(), clients_created);
 
 
   // Connect every client to every other client except themselves
@@ -468,6 +486,8 @@ bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
     }
   }
 
+  clock_gettime(CLOCK_REALTIME, &time_looping);
+
   // Loop though all the clients asking them to send to thier peers
   for (uint32_t i = 0; i < loops; i++) {
     for (uint32_t c = 0; c < clients_created; c++) {
@@ -481,21 +501,12 @@ bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
 
       if (msg != NULL) {
         ClientParams* client = &clients[c];
-#if 0
-        msg->pRspQ = &cmdFifo;
-#endif
         msg->arg1 = CmdSendToPeers;
         DPF("%ld  multi_thread_msg: send client=%p msg=%p arg1=%lu CmdDoNothing\n",
             tid(), client, msg, msg->arg1);
         add(&client->cmdFifo, msg);
         sem_post(&client->sem_waiting);
         msgs_sent += 1;
-#if 0
-        if (wait_for_rsp(&cmdFifo, CmdSent, client, i)) {
-          error = true;
-          goto done;
-        }
-#endif
       } else {
         no_msgs_count += 1;
         DPF("%ld  multi_thread_msg: Whoops msg == NULL c=%u msgs_sent=%lu no_msgs_count=%lu\n",
@@ -508,7 +519,9 @@ bool multi_thread_main(const uint32_t client_count, const uint64_t loops,
   error = false;
 
 done:
-  printf("%ld  multi_thread_msg: done, send CmdDisconnectAll %u clients\n",
+  clock_gettime(CLOCK_REALTIME, &time_done);
+
+  DPF("%ld  multi_thread_msg: done, send CmdDisconnectAll %u clients\n",
       tid(), clients_created);
   uint64_t msgs_processed = 0;
   for (uint32_t i = 0; i < clients_created; i++) {
@@ -538,7 +551,9 @@ done:
     }
   }
 
-  printf("%ld  multi_thread_msg: done, send CmdStop %u clients\n",
+  clock_gettime(CLOCK_REALTIME, &time_disconnected);
+
+  DPF("%ld  multi_thread_msg: done, send CmdStop %u clients\n",
       tid(), clients_created);
   for (uint32_t i = 0; i < clients_created; i++) {
     ClientParams* client = &clients[i];
@@ -567,7 +582,9 @@ done:
     }
   }
 
-  printf("%ld  multi_thread_msg: done, joining %u clients\n", tid(), clients_created);
+  clock_gettime(CLOCK_REALTIME, &time_stopped);
+
+  DPF("%ld  multi_thread_msg: done, joining %u clients\n", tid(), clients_created);
   for (uint32_t i = 0; i < clients_created; i++) {
     ClientParams* client = &clients[i];
     // Wait until the thread completes
@@ -587,9 +604,9 @@ done:
           tid(), i, (void*)client, client->error_count);
       error = true;
     }
-    DPF("%ld  multi_thread_msg: clients[%u]=%p msgs_processed=%lu, msgs_sent=%lu\n",
-        tid(), i, (void*)client, client->msgs_processed, client->msgs_sent);
     msgs_processed += client->msgs_processed;
+    DPF("%ld  multi_thread_msg: clients[%u]=%p msgs_processed=%lu error_count=%lu\n",
+        tid(), i, (void*)client, client->msgs_processed, client->error_count);
   }
 
   // Deinit the cmdFifo
@@ -599,6 +616,8 @@ done:
   // Deinit the msg pool
   DPF("%ld  multi_thread_msg: deinit msg pool=%p\n", tid(), &pool);
   MsgPool_deinit(&pool);
+
+  clock_gettime(CLOCK_REALTIME, &time_complete);
 
   uint64_t expected_value = loops * clients_created;
   uint64_t sum = msgs_sent + no_msgs_count;
@@ -610,6 +629,28 @@ done:
 
   printf("%ld  multi_thread_msg: msgs_processed=%lu msgs_sent=%lu "
       "no_msgs_count=%lu\n", tid(), msgs_processed, msgs_sent, no_msgs_count);
+
+  DPF("%ld  time_start=%lu.%lu\n", tid(), time_start.tv_sec, time_start.tv_nsec);
+  DPF("%ld  time_looping=%lu.%lu\n", tid(), time_looping.tv_sec, time_looping.tv_nsec);
+  DPF("%ld  time_done=%lu.%lu\n", tid(), time_done.tv_sec, time_done.tv_nsec);
+  DPF("%ld  time_disconnected=%lu.%lu\n", tid(), time_disconnected.tv_sec, time_disconnected.tv_nsec);
+  DPF("%ld  time_stopped=%lu.%lu\n", tid(), time_stopped.tv_sec, time_stopped.tv_nsec);
+  DPF("%ld  time_complete=%lu.%lu\n", tid(), time_complete.tv_sec, time_complete.tv_nsec);
+
+
+  DPF("%ld  startup=%.6f\n", tid(), diff_timespec_ns(&time_looping, &time_start) / ns_flt);
+  DPF("%ld  looping=%.6f\n", tid(), diff_timespec_ns(&time_done, &time_looping) / ns_flt);
+  DPF("%ld  disconneting=%.6f\n", tid(), diff_timespec_ns(&time_disconnected, &time_done) / ns_flt);
+  DPF("%ld  stopping=%.6f\n", tid(), diff_timespec_ns(&time_stopped, &time_disconnected) / ns_flt);
+  DPF("%ld  complete=%.6f\n", tid(), diff_timespec_ns(&time_complete, &time_stopped) / ns_flt);
+
+  uint64_t processing_ns = diff_timespec_ns(&time_complete, &time_looping);
+  printf("%ld  processing=%.3fs\n", tid(), processing_ns / ns_flt);
+  uint64_t msgs_per_sec = (msgs_processed * ns_u64) / processing_ns;
+  printf("%ld  msgs_per_sec=%lu\n", tid(), msgs_per_sec);
+  float ns_per_msg = (float)processing_ns / (float)msgs_processed;
+  printf("%ld  ns_per_msg=%.1fns\n", tid(), ns_per_msg);
+  printf("%ld  total=%.3f\n", tid(), diff_timespec_ns(&time_complete, &time_start) / ns_flt);
 
   printf("%ld  multi_thread_msg:-error=%u\n\n", tid(), error);
 
