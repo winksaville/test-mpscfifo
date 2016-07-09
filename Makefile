@@ -1,7 +1,7 @@
 # Turn off builtin implicit rules
 .SUFFIXES:
 
-CC=gcc
+CC=clang
 
 CC_FLAGS = -Wall -std=c11 -O2 -g -pthread
 all: test
