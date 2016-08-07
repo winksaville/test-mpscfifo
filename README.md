@@ -1,9 +1,9 @@
 test mpscfifo
 ===
 
-Test Dmitry Vyukov's (non-intrusive mpsc fifo)[http://www.1024cores.net/home/lock-free-algorithms/queues/non-intrusive-mpsc-node-based-queue].
+Test Dmitry Vyukov's [non-intrusive mpsc fifo](http://www.1024cores.net/home/lock-free-algorithms/queues/non-intrusive-mpsc-node-based-queue).
 
-I contacted Dmitry and (asked)[https://groups.google.com/forum/#!topic/lock-free/TC5uxElsQ3g/discussion]
+I contacted Dmitry and [asked](https://groups.google.com/forum/#!topic/lock-free/TC5uxElsQ3g/discussion)
 what he thought the problem might be, he said:
 ```
 This algorithm is not lock-free and is not linearizable.
