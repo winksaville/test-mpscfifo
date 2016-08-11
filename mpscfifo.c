@@ -85,8 +85,7 @@ void add(MpscFifo_t *pQ, Msg_t *pMsg) {
   DPF(LDR "add:+pQ=%p count=%d msg=%p pool=%p arg1=%lu arg2=%lu\n", ldr(), pQ, pQ->count, pMsg, pMsg->pPool, pMsg->arg1, pMsg->arg2);
   DPF(LDR "add: pQ=%p count=%d pHead=%p pHead->pNext=%p pTail=%p pTail->pNext=%p\n", ldr(), pQ, pQ->count, pQ->pHead, pQ->pHead->pNext, pQ->pTail, pQ->pTail->pNext);
   pMsg->pNext = NULL;
-  void** ptr_pHead = (void*)&pQ->pHead;
-  Msg_t* pPrev = __atomic_exchange_n(ptr_pHead, pMsg, __ATOMIC_ACQ_REL);
+  Msg_t* pPrev = __atomic_exchange_n((Msg_t**)&pQ->pHead, pMsg, __ATOMIC_ACQ_REL);
   // rmv will stall spinning if preempted at this critical spot
 
 #if DELAY != 0
@@ -106,11 +105,9 @@ void add(MpscFifo_t *pQ, Msg_t *pMsg) {
 
 void add(MpscFifo_t *pQ, Msg_t *pMsg) {
   pMsg->pNext = NULL;
-  Msg_t** ptr_pHead = &pQ->pHead;
-  Msg_t* pPrev = __atomic_exchange_n(ptr_pHead, pMsg, __ATOMIC_ACQ_REL);
+  Msg_t* pPrev = __atomic_exchange_n(&pQ->pHead, pMsg, __ATOMIC_ACQ_REL);
   // rmv will stall spinning if preempted at this critical spot
-  Msg_t** ptr_pNext = &pPrev->pNext;
-  __atomic_store_n(ptr_pNext, pMsg, __ATOMIC_RELEASE); //SEQ_CST);
+  __atomic_store_n(&pPrev->pNext, pMsg, __ATOMIC_RELEASE); //SEQ_CST);
 }
 
 #endif
