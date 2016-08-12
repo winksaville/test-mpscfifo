@@ -64,25 +64,25 @@ uint64_t deinitMpscFifo(MpscFifo_t *pQ, Msg_t**ppStub) {
   uint64_t msgs_processed = pQ->msgs_processed;
   if (pStub->pPool == NULL) {
     // Return stub as its doesn't blelow to a pool
-    DPF(LDR "deinitMpscFifo:-pQ=%p no pool for stub=%p\n", ldr(), pQ, pStub);
+    DPF(LDR "deinitMpscFifo: pQ=%p no pool for stub=%p\n", ldr(), pQ, pStub);
     if (ppStub != NULL) {
       *ppStub = pStub;
     }
   } else if (pStub->pPool == pQ) {
     // Can't return the stub to the poll we're deinitializing
-    DPF(LDR "deinitMpscFifo:-pQ=%p don't ret our own stub=%p\n", ldr(), pQ, pStub);
+    DPF(LDR "deinitMpscFifo: pQ=%p don't ret our own stub=%p\n", ldr(), pQ, pStub);
     if (ppStub != NULL) {
       *ppStub = NULL;
     }
   } else {
     // Return the stub to the pool
-    DPF(LDR "deinitMpscFifo:+pQ=%p ret stub=%p stub->pPool=%p\n", ldr(), pQ, pStub, pStub->pPool);
     ret_msg(pStub);
-    DPF(LDR "deinitMpscFifo:-pQ=%p ret stub=%p stub->pPool=%p\n", ldr(), pQ, pStub, pStub->pPool);
+    DPF(LDR "deinitMpscFifo: pQ=%p ret stub=%p stub->pPool=%p\n", ldr(), pQ, pStub, pStub->pPool);
     if (ppStub != NULL) {
       *ppStub = NULL;
     }
   }
+  DPF(LDR "deinitMpscFifo:-pQ=%p msgs_processed=%lu\n", ldr(), pQ, msgs_processed);
   return msgs_processed;
 }
 
