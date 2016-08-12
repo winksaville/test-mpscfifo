@@ -49,31 +49,41 @@ MpscFifo_t *initMpscFifo(MpscFifo_t *pQ, Msg_t *pStub) {
   pStub->pNext = NULL;
   pQ->pHead = pStub;
   pQ->pTail = pStub;
+  pQ->count = 0;
+  pQ->msgs_processed = 0;
   return pQ;
 }
 
 /**
  * @see mpscfifo.h
  */
-Msg_t *deinitMpscFifo(MpscFifo_t *pQ) {
+uint64_t deinitMpscFifo(MpscFifo_t *pQ, Msg_t**ppStub) {
   Msg_t *pStub = pQ->pHead;
   pQ->pHead = NULL;
   pQ->pTail = NULL;
+  uint64_t msgs_processed = pQ->msgs_processed;
   if (pStub->pPool == NULL) {
     // Return stub as its doesn't blelow to a pool
     DPF(LDR "deinitMpscFifo:-pQ=%p no pool for stub=%p\n", ldr(), pQ, pStub);
-    return pStub;
+    if (ppStub != NULL) {
+      *ppStub = pStub;
+    }
   } else if (pStub->pPool == pQ) {
     // Can't return the stub to the poll we're deinitializing
     DPF(LDR "deinitMpscFifo:-pQ=%p don't ret our own stub=%p\n", ldr(), pQ, pStub);
-    return NULL;
+    if (ppStub != NULL) {
+      *ppStub = NULL;
+    }
   } else {
     // Return the stub to the pool
     DPF(LDR "deinitMpscFifo:+pQ=%p ret stub=%p stub->pPool=%p\n", ldr(), pQ, pStub, pStub->pPool);
     ret_msg(pStub);
     DPF(LDR "deinitMpscFifo:-pQ=%p ret stub=%p stub->pPool=%p\n", ldr(), pQ, pStub, pStub->pPool);
-    return NULL;
+    if (ppStub != NULL) {
+      *ppStub = NULL;
+    }
   }
+  return msgs_processed;
 }
 
 /**
@@ -127,6 +137,7 @@ Msg_t *rmv_non_stalling(MpscFifo_t *pQ) {
     pTail->arg2 = pNext->arg2;
     pQ->pTail = pNext;
     DPF(LDR "rmv_non_stalling:1-is EMPTY pQ=%p count=%d msg=NULL\n", ldr(), pQ, pQ->count);
+    pQ->msgs_processed += 1;
     return pTail;
   } else {
     DPF("%ld  rmv_non_stalling:2-'empty' pQ=%p msg=NULL\n", pthread_self(), pQ);
@@ -144,6 +155,7 @@ Msg_t *rmv_non_stalling(MpscFifo_t *pQ) {
     pTail->arg1 = pNext->arg1;
     pTail->arg2 = pNext->arg2;
     pQ->pTail = pNext;
+    pQ->msgs_processed += 1;
     return pTail;
   } else {
     return NULL;
@@ -179,6 +191,7 @@ Msg_t *rmv(MpscFifo_t *pQ) {
     pTail->arg2 = pNext->arg2;
     pQ->pTail = pNext;
     DPF(LDR "rmv:4-got msg pQ=%p msg=%p arg1=%lu arg2=%lu\n", ldr(), pQ, pTail, pTail->arg1, pTail->arg2);
+    pQ->processed += 1;
     return pTail;
   }
 }
@@ -200,6 +213,7 @@ Msg_t *rmv(MpscFifo_t *pQ) {
     pTail->arg1 = pNext->arg1;
     pTail->arg2 = pNext->arg2;
     pQ->pTail = pNext;
+    pQ->msgs_processed += 1;
     return pTail;
   }
 }
