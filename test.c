@@ -42,10 +42,12 @@ _Atomic(uint64_t) gTick = 0;
 /**
  * Return the difference between to timespec in nano seconds
  */
-uint64_t diff_timespec_ns(struct timespec* t1, struct timespec* t2) {
-   uint64_t t1_ns = (t1->tv_sec * ns_u64) + t1->tv_nsec;
-   uint64_t t2_ns = (t2->tv_sec * ns_u64) + t2->tv_nsec;
-   return t1_ns - t2_ns;
+double diff_timespec_ns(struct timespec* t1, struct timespec* t2) {
+   double t1_ns = (t1->tv_sec * ns_flt) + t1->tv_nsec;
+   double t2_ns = (t2->tv_sec * ns_flt) + t2->tv_nsec;
+   double diff = t1_ns - t2_ns;
+   DPF("diff_timespec_ns: diff=%.10f\n", diff);
+   return diff;
 }
 
 typedef _Atomic(uint64_t) Counter;
@@ -659,15 +661,15 @@ done:
   printf(LDR "stopping=%.6f\n", ldr(), diff_timespec_ns(&time_stopped, &time_disconnected) / ns_flt);
   printf(LDR "complete=%.6f\n", ldr(), diff_timespec_ns(&time_complete, &time_stopped) / ns_flt);
 
-  uint64_t processing_ns = diff_timespec_ns(&time_complete, &time_looping);
+  double processing_ns = diff_timespec_ns(&time_complete, &time_looping);
   printf(LDR "processing=%.3fs\n", ldr(), processing_ns / ns_flt);
-  uint64_t cmds_per_sec = (cmds_processed * ns_u64) / processing_ns;
-  printf(LDR "cmds_per_sec=%lu\n", ldr(), cmds_per_sec);
-  float ns_per_cmd = (float)processing_ns / (float)cmds_processed;
+  double cmds_per_sec = (cmds_processed * ns_flt) / processing_ns;
+  printf(LDR "cmds_per_sec=%.3f\n", ldr(), cmds_per_sec);
+  double ns_per_cmd = (float)processing_ns / (float)cmds_processed;
   printf(LDR "ns_per_cmd=%.1fns\n", ldr(), ns_per_cmd);
-  uint64_t msgs_per_sec = (msgs_processed * ns_u64) / processing_ns;
-  printf(LDR "msgs_per_sec=%lu\n", ldr(), msgs_per_sec);
-  float ns_per_msg = (float)processing_ns / (float)msgs_processed;
+  double msgs_per_sec = (msgs_processed * ns_flt) / processing_ns;
+  printf(LDR "msgs_per_sec=%.3f\n", ldr(), msgs_per_sec);
+  double ns_per_msg = (float)processing_ns / (float)msgs_processed;
   printf(LDR "ns_per_msg=%.1fns\n", ldr(), ns_per_msg);
   printf(LDR "total=%.3f\n", ldr(), diff_timespec_ns(&time_complete, &time_start) / ns_flt);
 
