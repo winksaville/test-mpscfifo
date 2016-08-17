@@ -4,20 +4,36 @@
 CC=clang
 
 CC_FLAGS = -Wall -std=c11 -O2 -g -pthread
-all: test
+all: test simple
 
-mpscfifo.o : mpscfifo.c mpscfifo.h dpf.h
+mpscfifo.o : mpscfifo.c mpscfifo.h dpf.h Makefile
 	${CC} ${CC_FLAGS} -c $< -o $@
 
-test.o : test.c mpscfifo.h dpf.h
+msg_pool.o : msg_pool.c msg_pool.h dpf.h Makefile
 	${CC} ${CC_FLAGS} -c $< -o $@
 
-test : test.o mpscfifo.o
+test.o : test.c mpscfifo.h msg_pool.h dpf.h Makefile
+	${CC} ${CC_FLAGS} -c $< -o $@
+
+test : test.o mpscfifo.o msg_pool.o
 	${CC} ${CC_FLAGS} $^ -o $@
 	objdump -d $@ > $@.txt
+
+simple.o : simple.c mpscfifo.h msg_pool.h dpf.h Makefile
+	${CC} ${CC_FLAGS} -c $< -o $@
+
+simple : simple.o mpscfifo.o msg_pool.o
+	${CC} ${CC_FLAGS} $^ -o $@
+	objdump -d $@ > $@.txt
+
 
 run : test
 	@./test ${client_count} ${loops} ${msg_count}
 
+runs : simple
+	@./simple ${loops}
+
 clean :
-	@rm -f test *.o test.txt
+	@rm -f *.o
+	@rm -f test test.txt
+	@rm -f simple simple.txt
