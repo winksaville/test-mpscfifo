@@ -59,6 +59,7 @@ bool simple(void) {
 
   printf(LDR "simple:+\n", ldr());
 
+  printf(LDR "simple: init pool=%p\n", ldr(), &pool);
   bool error = MsgPool_init(&pool, 3); // One more for the cmdFifo
   if (error) {
     printf(LDR "simple: ERROR unable to create msgs for pool\n", ldr());
@@ -66,11 +67,8 @@ bool simple(void) {
   }
 
   // Init cmdFifo
-  printf(LDR "simple: init pool=%p\n", ldr(), &pool);
-  Msg_t* stub = MsgPool_get_msg(&pool);
-  initMpscFifo(&cmdFifo, stub);
-  
   printf(LDR "simple: init cmdFifo=%p\n", ldr(), &cmdFifo);
+  Msg_t* stub = MsgPool_get_msg(&pool);
   initMpscFifo(&cmdFifo, stub);
 
   printf(LDR "simple: remove from empty cmdFifo=%p\n", ldr(), &cmdFifo);
@@ -151,6 +149,7 @@ bool perf(const uint64_t loops) {
 
   printf(LDR "perf:+loops=%lu\n", ldr(), loops);
 
+  printf(LDR "simple: init pool=%p\n", ldr(), &pool);
   bool error = MsgPool_init(&pool, 3); // One more for the cmdFifo
   if (error) {
     printf(LDR "perf: ERROR unable to create msgs for pool\n", ldr());
@@ -158,9 +157,9 @@ bool perf(const uint64_t loops) {
   }
 
   // Init cmdFifo
+  DPF(LDR "perf: cmdFifo=%p\n", ldr(), p, &cmdFifo);
   Msg_t* stub = MsgPool_get_msg(&pool);
   initMpscFifo(&cmdFifo, stub);
-  DPF(LDR "perf: cmdFifo=%p\n", ldr(), p, &cp->cmdFifo);
   
   DPF(LDR "perf: init cmdFifo=%p\n", ldr(), &cmdFifo);
   initMpscFifo(&cmdFifo, stub);
