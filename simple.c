@@ -146,9 +146,6 @@ bool perf(const uint64_t loops) {
   Msg_t* stub = MsgPool_get_msg(&pool);
   initMpscFifo(&cmdFifo, stub);
   
-  DPF(LDR "perf: init cmdFifo=%p\n", ldr(), &cmdFifo);
-  initMpscFifo(&cmdFifo, stub);
-
   DPF(LDR "perf: remove from empty cmdFifo=%p\n", ldr(), &cmdFifo);
   Msg_t* pMsg = rmv(&cmdFifo);
   if (pMsg != NULL) {
